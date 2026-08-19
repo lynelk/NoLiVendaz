@@ -21,6 +21,21 @@
 - Google Sign Up / Sign In is the supported public authentication path.
 - Return Power Bank recovers the authenticated user's in-progress rental even when local browser storage is missing.
 - Customer-selected return station and return-request time are audit evidence only. They do not prove physical return.
+- One unpaid checkout draft per customer is enforced at database level to prevent concurrent duplicate checkout creation.
+- Set `NOLI_MARKET_MODE=true` for pilot/production so setup stations that are not CPay-paired do not appear in public discovery.
+- Set `NOLI_LEGAL_APPROVED=true` only after the current Terms, Privacy Notice, data-retention schedule and launch compliance have been formally reviewed.
+- The admin-only `GET /_api/ops/readiness` response is the deployment gate. Do not launch while it reports `BLOCKED`.
+
+## Pilot pricing baseline
+
+For unpaired seed/launch configuration the current baseline is:
+
+- UGX 500 per 30 minutes per power bank
+- UGX 20,000 refundable deposit per power bank
+- UGX 5,000 maximum rental charge per day per power bank
+- 10-minute grace period before rental charges
+
+These values are a local launch baseline only. When a CPay/OEM station is paired, its live provider tariff remains authoritative. The tariff accepted for a rental is snapshotted on that rental and must not be rewritten by a later price change.
 
 ## Financial safety rules
 
@@ -41,4 +56,13 @@
 
 ## Current validation baseline
 
-At the time this document was synchronized, the Floot project typechecked cleanly and all 10 active spec files passed.
+At the time this document was synchronized:
+
+- Floot typecheck: clean
+- Active specs: 11 passed, 0 failed
+- Open rentals after prototype cleanup: 0
+- Orphaned open rentals: 0
+- Database unpaid-draft concurrency guard: enabled
+- Customer Terms / Privacy consent version: `2026-08-20-v2`
+
+The application remains blocked for external market launch until the approved NIN verifier is connected, at least one real cabinet is CPay-paired, launch mode/legal approval are explicitly enabled, and the real end-to-end payment/release/return/refund flow has passed pilot testing.
