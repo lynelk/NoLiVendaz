@@ -6,6 +6,7 @@ describe("identity document validation", () => {
     expect(result.formatValid).toBeTrue();
     expect(result.normalized).toBe("CM123456789012");
   });
+
   it("applies the selected identity type rules", () => {
     expect(validateIdentityDocument("PASSPORT", "A1234567").formatValid).toBeTrue();
     expect(validateIdentityDocument("PASSPORT", "A12").formatValid).toBeFalse();
