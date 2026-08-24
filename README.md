@@ -1,126 +1,103 @@
 # NOLI Vendaz
 
-NOLI Vendaz is the customer-facing vending application for renting and returning power banks through CPay-connected vending stations.
+NOLI Vendaz is the customer-facing vending application for renting and returning power banks through CPay-connected vending stations. The live application is built and hosted in Floot; this repository is the engineering, integration and release mirror.
 
-The product is being built and hosted in Floot. This repository is the GitHub engineering mirror used for source control, integration documentation, review, and release tracking.
+## Customer journey
 
-## Current customer flow
+1. Browse or scan a CPay-paired station.
+2. Sign in with Google.
+3. Save basic profile details. Phone and identity verification may be completed now or later.
+4. When a protected service such as a rental is requested, NOLI evaluates the service-access policy.
+5. Any missing mandatory verification is completed without losing the original station/rental context.
+6. Payment is initiated only through a CPay-supported vending rail.
+7. CPay/OEM evidence remains authoritative for release, return, settlement and refund.
 
-1. Scan a station QR or enter a configured station code.
-2. Resolve live station state and pricing through the CPay vending integration.
-3. Sign in with Google and complete verified customer onboarding.
-4. Pay through a CPay-supported vending payment method.
-5. Wait for provider-verified physical release before the rental becomes ACTIVE.
-6. Return the power bank at a compatible station.
-7. Record the customer’s intended return station separately from OEM/CPay return verification.
-8. Settle usage and refund any unused refundable deposit through CPay.
+## Progressive identity model
+
+NOLI deliberately separates **validation** from **verification**:
+
+- Validation checks local structure, length and allowed characters.
+- Verification is the authoritative CPay Identity/provider decision.
+- A format-valid document is never treated as verified.
+- Phone and ID verification are optional during early account setup but mandatory at the service boundary when that service requires them.
+
+Current Uganda phone UX uses a fixed `+256` prefix with the customer entering the remaining national digits. OTP transport is provided through **CPay Communications**.
+
+Supported customer document selections are configuration/policy driven and currently include NIN, Passport, Refugee ID, Alien/foreign-national ID and Driver's Licence. A document can become `VERIFIED` only when CPay has a configured provider that explicitly supports its type and country.
+
+Raw identity numbers are not persisted by NOLI. The application stores a keyed fingerprint, masked display fragment, document type/country, verification state and provider/request references required for audit and recovery.
 
 ## Safety model
 
-NOLI does not manufacture payment, release, return, or refund states in the browser.
-
-- CPay remains authoritative for payment and vending orchestration state.
-- OEM/provider evidence remains authoritative for physical release and return.
-- Unknown provider states do not regress a rental to an earlier financial state.
-- Hosted vending start is guarded against duplicate concurrent requests.
-- One unpaid checkout draft per customer is enforced at the database layer.
-- A timed-out or incomplete CPay start is treated as uncertain rather than automatically retried.
-- Customer return intent is stored as evidence but never treated as proof of physical return.
+- No authoritative CPay payment success means no physical release request.
+- Unknown or ambiguous provider states never become optimistic success states.
+- Hosted vending start is guarded against concurrent duplicate requests.
+- One unpaid checkout draft per customer is enforced at database level.
+- Customer return intent is evidence only; OEM/CPay physical verification ends the rental.
+- A vending payment requires a verified registered phone even though phone linkage is optional during early onboarding.
 - Sensitive authenticated responses are explicitly non-cacheable.
-- Plaintext NIN storage has been removed. NOLI stores a keyed fingerprint plus last four characters only.
+- Full card PAN/CVV and full plaintext identity numbers are never stored by NOLI.
 
 ## Implemented capabilities
 
-- Google sign-up/sign-in
-- Protected customer routes
-- SMS OTP phone verification with abuse throttling
-- Versioned Terms, Privacy Notice and identity-verification consent
-- Registry-gated NIN verification boundary
+- Google-only public sign-up/sign-in
+- Progressive phone linking and OTP verification
+- CPay Communications for OTP delivery
+- Generic document selection and type-specific validation
+- CPay Identity for consented authoritative verification
+- Reusable protected-service access policy
+- Backward-compatible NIN aliases for older clients
 - QR scanning with iOS/Safari fallback
-- Live station readiness checks
-- Market-mode discovery that can hide unpaired/setup stations
+- Live station readiness checks and market-mode filtering
 - CPay capability-aware payment options
 - Exactly-once hosted vending start protection
 - Registered refund-phone safeguards
 - Immutable rental pricing snapshots
-- Realtime private rental updates
-- Push notifications
-- Offline/reconnection recovery
-- Unpaid-rental cancellation
-- Cross-device active-rental recovery
-- Rental history and digital receipts
-- Support cases linked to rentals, including damaged-battery safety guidance
-- Account management and safe account deletion
-- Authentication artifact cleanup
-- Customer-safe rendering crash recovery
-- Persisted intended return station and return-request timestamp
+- Realtime private rental updates and push notifications
+- Offline/reconnection recovery and cross-device rental recovery
+- Rental history, receipts, support, account deletion and privacy controls
+- Provider-authoritative return intent/reconciliation
 - Admin-only deployment readiness endpoint
 
 ## Kampala pilot pricing baseline
 
-The local launch/demo pricing baseline is:
+For local unpaired seed configuration:
 
 - **UGX 500 per 30 minutes per power bank**
 - **UGX 20,000 refundable deposit per power bank**
 - **UGX 5,000 daily maximum per power bank**
 - **10-minute grace period before rental charges**
 
-This is not allowed to overwrite a production vendor tariff. Once a station is paired, CPay/OEM live pricing is authoritative and the accepted price is snapshotted onto the rental.
+A paired CPay/OEM station remains authoritative for live pricing. Accepted terms are snapshotted onto each rental.
 
-## Market launch gates
+## CPay integration
 
-A build should not be treated as ready for pilot merely because the UI works. The current deployment gate requires:
+NOLI consumes CPay as the platform boundary for:
 
-- `NOLI_MARKET_MODE=true`
-- formally reviewed Customer Terms, Privacy Notice and retention/compliance policy, then `NOLI_LEGAL_APPROVED=true`
-- approved Uganda NIN verification provider connected
-- at least one live station paired to the CPay hosted vending lifecycle
-- production SMS route confirmed
-- end-to-end Mobile Money payment, release, return, refund and settlement testing completed
-- no orphaned open rental records
+- hosted vending and vending lifecycle;
+- merchant-signed private API v2 operations;
+- Identity verification;
+- Communications/OTP transport;
+- payment, refund and settlement references.
 
-The Floot application exposes an admin-only `GET /_api/ops/readiness` status for this purpose.
+Private API v2 uses RSA-SHA256 merchant signing. Provider credentials remain inside CPay rather than NOLI.
 
-## External dependencies still required
+## Capability gates
 
-The application intentionally keeps unsupported financial paths disabled until the upstream contracts exist.
+The UI does not advertise unsupported financial behavior as live. Visa/Mastercard vending, CPay Credit, alternate-payer/refund routing and bundled multi-power-bank release remain disabled until CPay exposes and validates the corresponding vending contracts.
 
-- Approved Uganda NIN verification provider credentials
-- CPay public vending token/QR pairing for each production cabinet
-- Secure card-funded vending-start contract for Visa/Mastercard
-- Confirmed CPay Credit vending channel
-- CPay bundled/multi-asset rental semantics if a single request may release multiple power banks
-- Separate payer/refund-MSISDN support where alternate mobile-money payer flows are enabled
+## Validation baseline
 
-## Integration boundaries
+Current Floot progressive-identity baseline:
 
-### NOLI Vendaz
+- TypeScript typecheck: **clean**
+- Standard specs: **14 passed, 0 failed**
+- Hook specs: **2 passed, 0 failed**
+- Total: **16 passed, 0 failed**
+- Customer Terms / Privacy / identity consent version: `2026-08-24-v3`
 
-Owns customer experience, authenticated account state, rental presentation, support, consent, local correlation, customer notifications and safety guards.
-
-### CPay
-
-Owns collections, refunds, payment references, financial state, vending orchestration state, provider correlation, ledger and settlement.
-
-### Vending OEM / physical provider
-
-Owns cabinet state, asset availability, ejection, return evidence and physical device events.
-
-## Development status
-
-Current Floot market-hardening baseline:
-
-- TypeScript typecheck: clean
-- Active specs: **11 passed, 0 failed**
-- Open rentals after prototype cleanup: **0**
-- Orphaned open rentals: **0**
-- Race-safe unpaid-draft uniqueness guard: enabled
-- Latest Floot checkpoint: **Hardened NOLI for market pilot**
-
-GitHub synchronization is being established on the `floot-sync-20260819` branch before review into `main`. The repository is still an engineering mirror in progress and does not yet contain the complete Floot source snapshot.
-
-See `docs/market-readiness.md` and `docs/production-integration.md` for launch controls and integration constraints.
+See `docs/progressive-identity-verification.md`, `docs/production-integration.md` and `docs/market-readiness.md`.
 
 ## Repository policy
 
-Do not commit credentials, API keys, NIN values, OAuth secrets, CPay signatures, provider passwords or customer-identifying production data. Environment-specific secrets remain in the deployment/runtime secret store.
+Do not commit credentials, signing keys, OAuth secrets, OTP values, raw identity numbers, provider passwords, CPay signatures or customer production data. Runtime secrets belong in the deployment secret store.
