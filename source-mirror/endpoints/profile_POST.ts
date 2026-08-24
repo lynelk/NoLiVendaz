@@ -93,6 +93,7 @@ export async function handle(request: Request) {
       identityConsentAt: input.identityConsent ? (current?.identityConsentAt && current.consentVersion === consentVersion ? current.identityConsentAt : acceptedAt) : null,
       termsAcceptedAt: input.termsAccepted ? (current?.termsAcceptedAt && current.consentVersion === consentVersion ? current.termsAcceptedAt : acceptedAt) : null,
       consentVersion: input.identityConsent || input.termsAccepted ? consentVersion : current?.consentVersion ?? null,
+      // Legacy NIN columns stay synchronized only for NIN accounts.
       nin: null,
       ninFingerprint: isNin ? nextIdentityFingerprint : null,
       ninLastFour: isNin ? nextIdentityLastFour : null,
@@ -110,7 +111,11 @@ export async function handle(request: Request) {
       ? await db.updateTable("vendingCustomers").set(values).where("id", "=", current.id).returningAll().executeTakeFirstOrThrow()
       : await db.insertInto("vendingCustomers").values({ ...values, userId: user.id }).returningAll().executeTakeFirstOrThrow();
 
-    await db.updateTable("users").set({ displayName: [row.firstName, row.middleName, row.lastName].filter(Boolean).join(" "), updatedAt: new Date() }).where("id", "=", user.id).execute();
+    await db.updateTable("users").set({
+      displayName: [row.firstName, row.middleName, row.lastName].filter(Boolean).join(" "),
+      updatedAt: new Date(),
+    }).where("id", "=", user.id).execute();
+
     return new Response(superjson.stringify({ profile: buildCustomerProfile(row) } satisfies OutputType));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to save profile";
