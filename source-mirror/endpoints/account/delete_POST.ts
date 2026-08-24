@@ -7,24 +7,22 @@ import type { OutputType } from "./delete_POST.schema";
 export async function handle(request: Request) {
   try {
     const { user } = await getServerUserSession(request);
-    const customer = await db.selectFrom("vendingCustomers").selectAll().where("userId", "=", user.id).executeTakeFirst();
-
-    if (customer) {
-      const openRental = await db.selectFrom("vendingRentals")
-        .select(["reference", "status"])
-        .where("customerId", "=", customer.id)
-        .where("status", "not in", ["COMPLETED", "CANCELLED"])
-        .orderBy("createdAt", "desc")
-        .executeTakeFirst();
-      if (openRental) {
-        return new Response(superjson.stringify({
-          error: `Account deletion is unavailable while rental ${openRental.reference} is ${openRental.status.replaceAll("_", " ").toLowerCase()}. Complete or resolve that rental first.`,
-        }), { status: 409 });
-      }
-    }
-
     await db.transaction().execute(async (trx) => {
+      // Lock the customer lifecycle row so rental creation and registered-phone changes
+      // cannot cross account deletion between an eligibility read and a later write.
+      const customer = await trx.selectFrom("vendingCustomers").selectAll()
+        .where("userId", "=", user.id).forUpdate().executeTakeFirst();
       if (customer) {
+        const openRental = await trx.selectFrom("vendingRentals")
+          .select(["reference", "status"])
+          .where("customerId", "=", customer.id)
+          .where("status", "not in", ["COMPLETED", "CANCELLED"])
+          .orderBy("createdAt", "desc")
+          .executeTakeFirst();
+        if (openRental) {
+          throw new Error(`OPEN_RENTAL:${openRental.reference}:${openRental.status}`);
+        }
+
         // Retain non-identifying rental/ledger correlation for financial audit while
         // removing customer contact data after every rental is terminal.
         await trx.updateTable("vendingRentals").set({
@@ -72,6 +70,12 @@ export async function handle(request: Request) {
     return response;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Account deletion failed";
+    if (message.startsWith("OPEN_RENTAL:")) {
+      const [, reference, status] = message.split(":");
+      return new Response(superjson.stringify({
+        error: `Account deletion is unavailable while rental ${reference} is ${status.replaceAll("_", " ").toLowerCase()}. Complete or resolve that rental first.`,
+      }), { status: 409 });
+    }
     return new Response(superjson.stringify({ error: message }), { status: message.toLowerCase().includes("auth") ? 401 : 400 });
   }
 }
