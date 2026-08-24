@@ -2,76 +2,79 @@
 
 ## Status
 
-The application has completed a market-hardening pass and is technically suitable for a controlled pilot once the external launch gates below are satisfied. It should not yet be described as production-ready for the general public while any mandatory blocker remains unresolved.
+The application has completed a market-hardening and progressive-identity pass. It is suitable for a controlled pilot only after the remaining external launch gates are satisfied.
 
 ## Pilot pricing
 
-Recommended Kampala pilot baseline for locally configured, unpaired seed stations:
+Local unpaired seed baseline:
 
 - **UGX 500 per 30 minutes per power bank**
 - **UGX 20,000 refundable deposit per power bank**
 - **UGX 5,000 daily maximum per power bank**
-- **10-minute grace period before rental charges begin**
+- **10-minute grace period**
 
-A CPay/OEM-paired station remains authoritative for its live tariff. NOLI snapshots the terms accepted when a rental is created so an existing rental cannot be repriced by a later station update.
+Paired CPay/OEM pricing remains authoritative and is snapshotted onto the rental when accepted.
 
 ## Mandatory launch gates
 
-1. Enable `NOLI_MARKET_MODE=true` so unpaired setup/demo stations disappear from public discovery.
-2. Record `NOLI_LEGAL_APPROVED=true` only after the current Customer Terms, Privacy Notice, formal data-retention policy and applicable launch compliance have been reviewed.
-3. Connect the approved Uganda NIN-verification provider using secure runtime credentials.
-4. Pair at least one production cabinet to the CPay hosted vending lifecycle and validate its QR/public token.
-5. Confirm the production Africa's Talking SMS sender and route.
-6. Run real end-to-end Mobile Money scenarios: success, decline, timeout, late success, ambiguous vending start, verified release, failed release, return, refund and settlement.
-7. Verify support escalation and operational ownership for paid/no-release, unconfirmed return, delayed refund and damaged battery incidents.
-8. Confirm there are no orphaned open rentals before launch.
+1. Enable `NOLI_MARKET_MODE=true` so unpaired setup/demo stations are hidden from public discovery.
+2. Set `NOLI_LEGAL_APPROVED=true` only after the current Terms, Privacy Notice, retention schedule and applicable launch compliance are formally reviewed.
+3. Configure NOLI's merchant-signed CPay v2 service identity (`CPAY_API_BASE_URL`, merchant number and signing key) in the runtime secret store.
+4. Ensure CPay Communications has a production SMS route for NOLI OTP messages.
+5. Ensure CPay Identity has at least one approved production identity provider and explicitly configured type/country coverage. NOLI must never interpret local format validation as verification.
+6. Pair at least one production cabinet to CPay hosted vending and validate its QR/public token.
+7. Run real Mobile Money scenarios: success, decline, timeout, late success, ambiguous start, verified release, failed release, return, refund and settlement.
+8. Verify support ownership for paid/no-release, unconfirmed return, delayed refund and damaged-battery incidents.
+9. Confirm there are no orphaned open rentals before launch.
+
+## Progressive verification gates
+
+Early account setup may be completed without phone or identity verification. Protected services enforce their own policy at access time.
+
+For a power-bank rental, NOLI requires:
+
+- authenticated customer;
+- verified registered phone;
+- an accepted identity type with authoritative `VERIFIED` state;
+- current required consent/terms state.
+
+The original rental context is preserved while the customer completes missing verification.
+
+## Identity and privacy controls
+
+- Uganda phone UX uses a fixed `+256` prefix and stores normalized E.164 values.
+- OTPs are generated/verified by NOLI and transported by CPay Communications.
+- Generic document types are validated locally by type/country-specific rules.
+- Authoritative verification is performed through CPay Identity and its configured provider.
+- Raw identity numbers are not persisted by NOLI.
+- Sensitive authenticated APIs use `no-store` cache controls.
+- Account deletion is blocked while a financial or physical rental is open; retained terminal transaction records are anonymized for reconciliation.
 
 ## Financial and vending invariants
 
 - No authoritative CPay payment means no physical release.
-- A UI success state never substitutes for provider evidence.
+- UI state never substitutes for provider evidence.
 - Ambiguous CPay/OEM results move to reconciliation/review rather than blind retry.
-- Exactly one unpaid draft can exist per customer at a time, protected by a database uniqueness guard.
-- Customer-selected return location is recorded as intent, not proof of physical return.
-- Refund routing follows the verified registered phone policy and only uses alternate-payer behavior when CPay exposes the required capability.
-- Visa/Mastercard vending remains disabled until CPay supports a safe pre-funded/card-funded vending-start contract.
-- CPay Credit remains disabled until a supported vending credit channel is configured.
-- Multiple simultaneous power-bank release remains capability-gated until CPay supports bundled/multi-asset vending semantics.
-
-## Identity and privacy controls
-
-- Google is the current public account sign-in route.
-- Phone OTP is rate-limited and short-lived.
-- Full NIN is not stored. NOLI retains a keyed fingerprint, masked suffix and verification state.
-- Registry verification requires explicit current consent.
-- Sensitive authenticated APIs return `no-store` cache controls.
-- Account deletion is blocked while a financial or physical rental remains open.
-- Settled rental records retained after account deletion are anonymized for reconciliation.
-
-## Customer safety
-
-Damaged-power-bank support explicitly tells customers to stop use for unusually hot, swollen, leaking, smoking or physically damaged equipment, disconnect it, keep it away from flammable material, notify venue staff and not attempt repair.
+- Exactly one unpaid draft per customer is protected by a database uniqueness guard.
+- Customer-selected return location is intent, not physical proof.
+- Unsupported Visa/Mastercard vending, CPay Credit, alternate-payer refunds and multi-asset release remain capability-gated.
 
 ## Operational readiness endpoint
 
-Floot exposes an admin-only:
+Admin-only:
 
 `GET /_api/ops/readiness`
 
-The response reports launch blockers without returning credentials, including integration configuration, paired station count, payment capability coverage, open rentals, orphaned rentals, market mode and legal-approval state.
-
-Do not proceed to external pilot while it reports `BLOCKED`.
+It reports deployment blockers without returning credentials. External pilot should not proceed while it reports `BLOCKED`.
 
 ## Current validation baseline
 
-- TypeScript: clean
-- Active specs: **11 passed, 0 failed**
-- Open rentals after prototype cleanup: **0**
-- Orphaned open rentals: **0**
-- Duplicate unpaid-draft database protection: enabled
-- Current Terms / Privacy consent version: `2026-08-20-v2`
-- Latest Floot checkpoint: `Hardened NOLI for market pilot`
+- TypeScript: **clean**
+- Standard specs: **14 passed, 0 failed**
+- Hook specs: **2 passed, 0 failed**
+- Total: **16 passed, 0 failed**
+- Current Terms / Privacy / identity consent version: `2026-08-24-v3`
 
 ## Repository status
 
-The GitHub repository is currently an engineering mirror in progress. Documentation is synchronized, but the complete Floot application source has not yet been mirrored into GitHub. Keep the current PR in draft until the source snapshot and release process are complete.
+This repository is the engineering/integration mirror for the Floot-hosted application. Integration contracts, release controls and product-specific architecture are maintained here; runtime credentials and production customer data are not.
