@@ -17,17 +17,18 @@ export default function AuthContinuePage() {
       navigate(`/login?resume=${encodeURIComponent(resumePath)}`, { replace: true });
       return;
     }
-    if (authState.type !== "authenticated" || profile.profileQuery.isPending) return;
+    if (authState.type !== "authenticated" || !profile.profileQuery.isSuccess) return;
     const customer = profile.profileQuery.data?.profile;
     navigate(customer?.registrationComplete ? resumePath : `/onboarding?resume=${encodeURIComponent(resumePath)}`, { replace: true });
-  }, [authState.type, profile.profileQuery.isPending, profile.profileQuery.data?.profile?.registrationComplete, navigate, resumePath]);
+  }, [authState.type, profile.profileQuery.isSuccess, profile.profileQuery.data?.profile?.registrationComplete, navigate, resumePath]);
 
   return (
     <main className={styles.shell}>
       <div className={styles.mark}><Zap size={24}/></div>
       <ShieldCheck size={26}/>
       <h1>Preparing your NOLI account</h1>
-      <p>Checking your saved customer profile before continuing. Service-specific verification is enforced when you use a protected service.</p>
+      <p>{profile.profileQuery.isError ? "We could not load your saved profile. Check your connection and retry rather than starting setup again." : "Checking your saved customer profile before continuing. Service-specific verification is enforced when you use a protected service."}</p>
+      {profile.profileQuery.isError && <button type="button" onClick={() => profile.profileQuery.refetch()}>Retry profile check</button>}
     </main>
   );
 }
