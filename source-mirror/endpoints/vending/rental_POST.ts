@@ -8,6 +8,12 @@ import { resolveVendingGatewayCapabilities } from "../../helpers/resolveVendingG
 import { buildCustomerProfile } from "../../helpers/customerProfileView";
 import { schema, type OutputType } from "./rental_POST.schema";
 
+class RentalRequestError extends Error {
+  constructor(message: string, readonly status: number, readonly missingRequirements?: string[]) {
+    super(message);
+  }
+}
+
 export async function handle(request: Request) {
   try {
     const { user } = await getServerUserSession(request);
@@ -57,43 +63,46 @@ export async function handle(request: Request) {
       return new Response(superjson.stringify({ error: `This location allows up to ${allowedQuantity} power bank${allowedQuantity === 1 ? "" : "s"} right now.` }), { status: 409 });
     }
 
-    const customer = await db.selectFrom("vendingCustomers").selectAll().where("userId", "=", user.id).executeTakeFirst();
-    if (!customer) return new Response(superjson.stringify({ error: "Complete your NOLI Vendaz customer profile before renting." }), { status: 403 });
-    const access = buildCustomerProfile(customer);
-    if (!access.serviceAccessReady) {
-      return new Response(superjson.stringify({
-        error: "Phone and identity verification are required before starting this rental.",
-        missingRequirements: access.serviceAccessMissing,
-      }), { status: 403 });
-    }
-    if (!customer.phoneNumber) {
-      return new Response(superjson.stringify({ error: "Link and verify a registered phone before renting." }), { status: 403 });
-    }
-    if (normalizePhoneNumber(customer.phoneNumber) !== normalizePhoneNumber(input.phoneNumber)) {
-      return new Response(superjson.stringify({ error: "Rental registration must use your verified account phone number." }), { status: 403 });
-    }
+    // Customer lifecycle operations share this row lock with account deletion and
+    // registered-phone changes. That makes the eligibility read and draft creation atomic.
+    const rental = await db.transaction().execute(async (trx) => {
+      const customer = await trx.selectFrom("vendingCustomers").selectAll()
+        .where("userId", "=", user.id).forUpdate().executeTakeFirst();
+      if (!customer) throw new RentalRequestError("Complete your NOLI Vendaz customer profile before renting.", 403);
 
-    const activeRental = await db.selectFrom("vendingRentals")
-      .selectAll()
-      .where("customerId", "=", customer.id)
-      .where("status", "not in", ["COMPLETED", "CANCELLED"])
-      .orderBy("createdAt", "desc")
-      .executeTakeFirst();
+      const access = buildCustomerProfile(customer);
+      if (!access.serviceAccessReady) {
+        throw new RentalRequestError(
+          "Phone and identity verification are required before starting this rental.",
+          403,
+          access.serviceAccessMissing,
+        );
+      }
+      if (!customer.phoneNumber) throw new RentalRequestError("Link and verify a registered phone before renting.", 403);
+      if (normalizePhoneNumber(customer.phoneNumber) !== normalizePhoneNumber(input.phoneNumber)) {
+        throw new RentalRequestError("Rental registration must use your verified account phone number.", 403);
+      }
 
-    if (activeRental && activeRental.status === "PAYMENT_REQUIRED" && activeRental.stationId !== station.id) {
-      return new Response(superjson.stringify({ error: `You already have an unfinished rental ${activeRental.reference}. Cancel that unpaid rental from Activity before starting at another station.` }), { status: 409 });
-    }
-    if (activeRental && activeRental.status === "PAYMENT_REQUIRED" && activeRental.quantity !== input.quantity) {
-      return new Response(superjson.stringify({ error: `Rental ${activeRental.reference} was created for ${activeRental.quantity} power bank${activeRental.quantity === 1 ? "" : "s"}. Cancel it from Activity before changing quantity.` }), { status: 409 });
-    }
-    if (activeRental && activeRental.status !== "PAYMENT_REQUIRED") {
-      return new Response(superjson.stringify({ error: `Rental ${activeRental.reference} is still open. Resume or resolve that rental before starting another one.` }), { status: 409 });
-    }
+      const activeRental = await trx.selectFrom("vendingRentals")
+        .selectAll()
+        .where("customerId", "=", customer.id)
+        .where("status", "not in", ["COMPLETED", "CANCELLED"])
+        .orderBy("createdAt", "desc")
+        .executeTakeFirst();
 
-    let rental = activeRental;
-    if (!rental) {
+      if (activeRental?.status === "PAYMENT_REQUIRED" && activeRental.stationId !== station.id) {
+        throw new RentalRequestError(`You already have an unfinished rental ${activeRental.reference}. Cancel that unpaid rental from Activity before starting at another station.`, 409);
+      }
+      if (activeRental?.status === "PAYMENT_REQUIRED" && activeRental.quantity !== input.quantity) {
+        throw new RentalRequestError(`Rental ${activeRental.reference} was created for ${activeRental.quantity} power bank${activeRental.quantity === 1 ? "" : "s"}. Cancel it from Activity before changing quantity.`, 409);
+      }
+      if (activeRental && activeRental.status !== "PAYMENT_REQUIRED") {
+        throw new RentalRequestError(`Rental ${activeRental.reference} is still open. Resume or resolve that rental before starting another one.`, 409);
+      }
+      if (activeRental) return activeRental;
+
       try {
-        rental = await db.insertInto("vendingRentals").values({
+        return await trx.insertInto("vendingRentals").values({
           reference: `VR-${nanoid(10).toUpperCase()}`,
           customerId: customer.id,
           stationId: station.id,
@@ -114,15 +123,15 @@ export async function handle(request: Request) {
       } catch (error) {
         const dbCode = error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
         if (dbCode !== "23505") throw error;
-        const concurrentDraft = await db.selectFrom("vendingRentals").selectAll()
+        const concurrentDraft = await trx.selectFrom("vendingRentals").selectAll()
           .where("customerId", "=", customer.id).where("status", "=", "PAYMENT_REQUIRED")
           .orderBy("createdAt", "desc").executeTakeFirst();
         if (!concurrentDraft || concurrentDraft.stationId !== station.id || concurrentDraft.quantity !== input.quantity) {
-          return new Response(superjson.stringify({ error: "Another checkout was created at the same time. Open Activity and continue the existing unpaid rental." }), { status: 409 });
+          throw new RentalRequestError("Another checkout was created at the same time. Open Activity and continue the existing unpaid rental.", 409);
         }
-        rental = concurrentDraft;
+        return concurrentDraft;
       }
-    }
+    });
 
     const output: OutputType = { rental: {
       reference: rental.reference,
@@ -157,6 +166,9 @@ export async function handle(request: Request) {
     return new Response(superjson.stringify(output));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create rental";
+    if (error instanceof RentalRequestError) {
+      return new Response(superjson.stringify({ error: message, ...(error.missingRequirements ? { missingRequirements: error.missingRequirements } : {}) }), { status: error.status });
+    }
     return new Response(superjson.stringify({ error: message }), { status: message.toLowerCase().includes("auth") ? 401 : 400 });
   }
 }
