@@ -1,8 +1,8 @@
 {
   "flootProjectId": "4a50fb0d-fe27-4e1a-bdf8-2413a3b5cd8a",
-  "flootVersion": "1787601701938",
-  "checkpointId": "67e0e047-a276-4319-9e70-6f3f5e15551b",
-  "checkpointTitle": "Hardened customer lifecycle concurrency",
-  "mirroredAt": "2026-08-24",
-  "validation": "16 specs passed, 0 failed"
+  "flootVersion": "1787719079486",
+  "checkpointId": "2019bca4-05ba-479b-a1c9-260af96ae152",
+  "checkpointTitle": "Added live CPay identity coverage",
+  "mirroredAt": "2026-08-26",
+  "validation": "16 specs passed, 0 failed; TypeScript clean"
 }
