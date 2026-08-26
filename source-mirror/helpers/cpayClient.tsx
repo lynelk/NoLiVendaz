@@ -31,6 +31,19 @@ export type CPayIdentityResult = {
   requestedBy?: string | null;
 };
 
+export type CPayIdentityProviderCapability = {
+  providerCode?: string;
+  supportsSync?: boolean;
+  supportsAsync?: boolean;
+  supportedIdentityTypes?: string[];
+  supportedCountries?: string[];
+};
+
+export type CPayIdentityCapabilitiesResult = {
+  merchantNumber?: string;
+  providers?: CPayIdentityProviderCapability[];
+};
+
 const MAX_CPAY_RESPONSE_BYTES = 64 * 1024;
 
 function parseCpayObject(text: string): Record<string, unknown> {
@@ -311,6 +324,14 @@ export async function getCpayIdentityStatus(reference: string) {
   const { merchantNumber } = config();
   return cpayFetch<CPayIdentityResult>(
     `/api/v2/identity/requests/${encodeURIComponent(reference)}?merchantNumber=${encodeURIComponent(merchantNumber)}`,
+    { method: "GET" }
+  );
+}
+
+export async function getCpayIdentityCapabilities() {
+  const { merchantNumber } = config();
+  return cpayFetch<CPayIdentityCapabilitiesResult>(
+    `/api/v2/identity/capabilities?merchantNumber=${encodeURIComponent(merchantNumber)}`,
     { method: "GET" }
   );
 }

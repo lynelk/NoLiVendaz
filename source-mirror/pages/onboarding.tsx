@@ -59,6 +59,15 @@ export default function OnboardingPage() {
   );
   const phoneNumber = phoneLocal ? `+256${phoneLocal}` : "";
   const phoneFormatValid = phoneLocal.length === 9 && /^\d{9}$/.test(phoneLocal);
+  const identityCapabilities = profile.identityCapabilitiesQuery.data;
+  const synchronousIdentityProvider = identityCapabilities?.providers.find((provider) =>
+    provider.supportsSync
+    && provider.supportedIdentityTypes.includes(identityType)
+    && (provider.supportedCountries.length === 0 || provider.supportedCountries.includes(identityCountry.toUpperCase()))
+  );
+  const identityCoverageKnown = profile.identityCapabilitiesQuery.isSuccess;
+  const identityVerificationAvailable = Boolean(identityCapabilities?.configured && synchronousIdentityProvider);
+  const identityVerificationBlocked = identityCoverageKnown && !identityVerificationAvailable;
 
   useEffect(() => {
     if (authState.type === "unauthenticated") navigate("/login", { replace: true });
@@ -125,6 +134,12 @@ export default function OnboardingPage() {
 
   const verifyIdentity = async () => {
     setMessage(null);
+    if (identityVerificationBlocked) {
+      setMessage(identityCapabilities?.configured
+        ? `${identityDefinition.shortLabel} can be saved now, but no synchronous CPay Identity provider currently covers ${identityCountry.toUpperCase()} for this document type.`
+        : "CPay Identity verification is not configured for this NOLI environment yet. You can save the document now and verify it later.");
+      return;
+    }
     if (!identityCheck.formatValid) {
       setMessage(identityCheck.message);
       return;
@@ -227,6 +242,11 @@ export default function OnboardingPage() {
           {existing?.identityConfigured && existing.identityType === identityType && !identityNumber.trim() && <div className={styles.valid}><ShieldCheck size={17}/> Saved securely as {existing.identityMasked}. NOLI does not store the full identification number.</div>}
           {identityNumber.trim() && <div className={identityCheck.formatValid ? styles.valid : styles.hint}><IdCard size={17}/>{identityCheck.message}</div>}
           <div className={styles.validationExplainer}><strong>Validation</strong><span>Local format and length check. This never means the document is verified.</span><strong>Verification</strong><span>Back-end confirmation through CPay Identity and the provider configured for the selected ID type.</span></div>
+          {profile.identityCapabilitiesQuery.isPending && <div className={styles.registry}><Badge variant="secondary">Checking provider coverage</Badge><p>NOLI is checking which identification documents CPay can verify for this market.</p></div>}
+          {profile.identityCapabilitiesQuery.isError && <div className={styles.registry}><Badge variant="warning">Coverage check unavailable</Badge><p>You can still save this document. Verification will be confirmed by CPay when you attempt it.</p></div>}
+          {identityCoverageKnown && !identityCapabilities?.configured && <div className={styles.registry}><Badge variant="warning">Verification connection pending</Badge><p>You can save this document now. Authoritative verification becomes available when NOLI's CPay Identity service credentials are configured.</p></div>}
+          {identityCoverageKnown && identityCapabilities?.configured && identityVerificationAvailable && <div className={styles.valid}><CheckCircle2 size={17}/> CPay has a synchronous verification provider for this document type and country.</div>}
+          {identityCoverageKnown && identityCapabilities?.configured && !identityVerificationAvailable && <div className={styles.registry}><Badge variant="warning">Save only for now</Badge><p>No synchronous CPay Identity provider currently covers {identityDefinition.shortLabel} in {identityCountry.toUpperCase()}. Local validation is still available, but protected services remain blocked until authoritative verification becomes available.</p></div>}
           {latest?.identityVerificationStatus === "VERIFICATION_PENDING" && <div className={styles.registry}><Badge variant="warning">Verification pending</Badge><p>CPay accepted the verification flow, but no authoritative verified result has been recorded yet.</p></div>}
           {latest?.identityVerificationStatus === "VERIFIED" && <div className={styles.valid}><CheckCircle2 size={17}/> {selectedIdentityLabel} verified through CPay Identity</div>}
           {latest?.identityVerificationStatus === "VERIFICATION_FAILED" && <div className={styles.registry}><Badge variant="destructive">Could not verify</Badge><p>Check the selected ID type and number against the physical document before trying again.</p></div>}
@@ -246,7 +266,7 @@ export default function OnboardingPage() {
           <div className={styles.hint}><ShieldCheck size={17}/>Camera and location permissions are requested separately only when you use those features. Payment, communications and identity-provider routing are handled through CPay.</div>
           <div className={styles.actionRow}>
             <Button variant="outline" onClick={save} disabled={!canSave || profile.saveProfile.isPending}>{profile.saveProfile.isPending ? "Saving..." : "Save profile"}</Button>
-            <Button onClick={verifyIdentity} disabled={!identityCheck.formatValid || !identityConsent || !termsAccepted || profile.verifyIdentity.isPending}>{profile.verifyIdentity.isPending ? "Checking provider..." : `Verify ${identityDefinition.shortLabel}`}</Button>
+            <Button onClick={verifyIdentity} disabled={!identityCheck.formatValid || !identityConsent || !termsAccepted || profile.verifyIdentity.isPending || identityVerificationBlocked}>{profile.verifyIdentity.isPending ? "Checking provider..." : identityVerificationBlocked ? "Verification unavailable" : `Verify ${identityDefinition.shortLabel}`}</Button>
           </div>
         </section>
 

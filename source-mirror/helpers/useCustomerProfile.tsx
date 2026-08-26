@@ -5,6 +5,7 @@ import { postPhoneOtpRequest } from "../endpoints/phone-otp/request_POST.schema"
 import { postPhoneOtpVerify } from "../endpoints/phone-otp/verify_POST.schema";
 import { postNinVerify } from "../endpoints/nin-verify_POST.schema";
 import { postIdentityVerify } from "../endpoints/identity-verify_POST.schema";
+import { getIdentityCapabilities } from "../endpoints/identity-capabilities_GET.schema";
 
 export function useCustomerProfile(enabled = true) {
   const queryClient = useQueryClient();
@@ -13,6 +14,13 @@ export function useCustomerProfile(enabled = true) {
     queryFn: () => getProfile(),
     enabled,
     retry: false,
+  });
+  const identityCapabilitiesQuery = useQuery({
+    queryKey: ["identity-capabilities"],
+    queryFn: () => getIdentityCapabilities(),
+    enabled,
+    retry: false,
+    staleTime: 5 * 60_000,
   });
   const saveProfile = useMutation({
     mutationFn: postProfile,
@@ -31,5 +39,5 @@ export function useCustomerProfile(enabled = true) {
     mutationFn: postIdentityVerify,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["customer-profile"] }),
   });
-  return { profileQuery, saveProfile, requestOtp, verifyOtp, verifyNin, verifyIdentity };
+  return { profileQuery, identityCapabilitiesQuery, saveProfile, requestOtp, verifyOtp, verifyNin, verifyIdentity };
 }
